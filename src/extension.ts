@@ -137,16 +137,25 @@ export function activate(context: vscode.ExtensionContext) {
   let adapter: DaemonBeadsAdapter | null = null;
   let adapterWorkspaceRoot: string | null = null;
   let adapterBdPath: string | null = null;
+  let adapterAdditionalEnvPath: string | null = null;
   let daemonManager: DaemonManager | null = null;
   let daemonWorkspaceRoot: string | null = null;
   let daemonBdPath: string | null = null;
+  let daemonAdditionalEnvPath: string | null = null;
   let statusBarItem: vscode.StatusBarItem | null = null;
   let updateDaemonStatus: (() => void) | null = null;
   let autoStartAttempted = false;
 
-  const getBdPath = (): string => {
+  const getBdConfig = (): { bdPath: string; additionalEnvPath: string[] } => {
     const ws = vscode.workspace.workspaceFolders?.[0];
-    return ws ? vscode.workspace.getConfiguration('beadsKanban', ws.uri).get<string>('bdPath', '') : '';
+    if (!ws) {
+      return { bdPath: '', additionalEnvPath: [] };
+    }
+    const config = vscode.workspace.getConfiguration('beadsKanban', ws.uri);
+    return {
+      bdPath: config.get<string>('bdPath', ''),
+      additionalEnvPath: config.get<string[]>('additionalEnvPath', [])
+    };
   };
 
   const ensureAdapter = (): DaemonBeadsAdapter | null => {
@@ -155,14 +164,16 @@ export function activate(context: vscode.ExtensionContext) {
       return null;
     }
 
-    const bdPath = getBdPath();
+    const { bdPath, additionalEnvPath } = getBdConfig();
+    const additionalEnvPathKey = JSON.stringify(additionalEnvPath);
 
-    if (!adapter || adapterWorkspaceRoot !== ws.uri.fsPath || adapterBdPath !== bdPath) {
+    if (!adapter || adapterWorkspaceRoot !== ws.uri.fsPath || adapterBdPath !== bdPath || adapterAdditionalEnvPath !== additionalEnvPathKey) {
       adapter?.dispose();
       output.appendLine('[Extension] Using DaemonBeadsAdapter');
-      adapter = new DaemonBeadsAdapter(ws.uri.fsPath, output, bdPath);
+      adapter = new DaemonBeadsAdapter(ws.uri.fsPath, output, bdPath, additionalEnvPath);
       adapterWorkspaceRoot = ws.uri.fsPath;
       adapterBdPath = bdPath;
+      adapterAdditionalEnvPath = additionalEnvPathKey;
     }
 
     return adapter;
@@ -178,12 +189,14 @@ export function activate(context: vscode.ExtensionContext) {
       return null;
     }
 
-    const bdPath = getBdPath();
+    const { bdPath, additionalEnvPath } = getBdConfig();
+    const additionalEnvPathKey = JSON.stringify(additionalEnvPath);
 
-    if (!daemonManager || daemonWorkspaceRoot !== ws.uri.fsPath || daemonBdPath !== bdPath) {
-      daemonManager = new DaemonManager(ws.uri.fsPath, output, bdPath);
+    if (!daemonManager || daemonWorkspaceRoot !== ws.uri.fsPath || daemonBdPath !== bdPath || daemonAdditionalEnvPath !== additionalEnvPathKey) {
+      daemonManager = new DaemonManager(ws.uri.fsPath, output, bdPath, additionalEnvPath);
       daemonWorkspaceRoot = ws.uri.fsPath;
       daemonBdPath = bdPath;
+      daemonAdditionalEnvPath = additionalEnvPathKey;
       autoStartAttempted = false;
     }
 

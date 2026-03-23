@@ -102,6 +102,14 @@
           "type": "string",
           "default": "",
           "description": "Path to the bd CLI executable (e.g., '/home/user/.local/bin/bd' or 'C:\\Users\\user\\AppData\\Local\\beads\\bd.exe'). Leave empty to use the system PATH. Useful when bd is installed in a location not on the global PATH, such as a project-local or user-local installation."
+        },
+        "beadsKanban.additionalEnvPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional directories to prepend to PATH when the extension runs bd commands. Use this when bd or tools it calls (e.g., dolt) are not on the PATH that VS Code inherits — common when VS Code is launched from a GUI launcher rather than a terminal. Each entry is a directory path; leading ~ is expanded to the user home directory. Example: [\"/opt/homebrew/bin\", \"~/.local/bin\"]"
         }
       }
     }
