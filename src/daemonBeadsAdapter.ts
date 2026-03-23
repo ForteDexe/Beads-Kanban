@@ -18,6 +18,7 @@ import {
  */
 export class DaemonBeadsAdapter {
   private workspaceRoot: string;
+  private bdExecutable: string;
   private output: vscode.OutputChannel;
   private lastMutationTime: number = 0;
   private lastInteractionTime: number = 0;
@@ -39,9 +40,10 @@ export class DaemonBeadsAdapter {
   private readonly COLUMN_CACHE_TTL_MS = 30000; // 30 seconds
   private readonly COLUMN_CACHE_MAX_SIZE = 1000; // Max items to cache per column
 
-  constructor(workspaceRoot: string, output: vscode.OutputChannel) {
+  constructor(workspaceRoot: string, output: vscode.OutputChannel, bdPath?: string) {
     this.workspaceRoot = workspaceRoot;
     this.output = output;
+    this.bdExecutable = bdPath && bdPath.trim() ? bdPath.trim() : 'bd';
   }
 
   /**
@@ -257,8 +259,8 @@ export class DaemonBeadsAdapter {
     // Sanitize all arguments before passing to CLI
     const sanitizedArgs = args.map(arg => this.sanitizeCliArg(arg));
     return new Promise((resolve, reject) => {
-      const command = `bd ${sanitizedArgs.join(' ')}`;
-      const child = spawn('bd', sanitizedArgs, {
+      const command = `${this.bdExecutable} ${sanitizedArgs.join(' ')}`;
+      const child = spawn(this.bdExecutable, sanitizedArgs, {
         cwd: this.workspaceRoot,
         shell: false
       });

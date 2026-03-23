@@ -97,6 +97,11 @@
           "type": "string",
           "default": "",
           "description": "Issue ID prefix (e.g., 'my-project'). Leave empty to auto-detect from database. Use 'bd rename-prefix <new-prefix>' CLI command to change existing issue prefixes."
+        },
+        "beadsKanban.bdPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the bd CLI executable (e.g., '/home/user/.local/bin/bd' or 'C:\\Users\\user\\AppData\\Local\\beads\\bd.exe'). Leave empty to use the system PATH. Useful when bd is installed in a location not on the global PATH, such as a project-local or user-local installation."
         }
       }
     }

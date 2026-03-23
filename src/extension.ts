@@ -136,11 +136,18 @@ export function activate(context: vscode.ExtensionContext) {
   // Always use DaemonBeadsAdapter (v2.0+ is daemon-only)
   let adapter: DaemonBeadsAdapter | null = null;
   let adapterWorkspaceRoot: string | null = null;
+  let adapterBdPath: string | null = null;
   let daemonManager: DaemonManager | null = null;
   let daemonWorkspaceRoot: string | null = null;
+  let daemonBdPath: string | null = null;
   let statusBarItem: vscode.StatusBarItem | null = null;
   let updateDaemonStatus: (() => void) | null = null;
   let autoStartAttempted = false;
+
+  const getBdPath = (): string => {
+    const ws = vscode.workspace.workspaceFolders?.[0];
+    return ws ? vscode.workspace.getConfiguration('beadsKanban', ws.uri).get<string>('bdPath', '') : '';
+  };
 
   const ensureAdapter = (): DaemonBeadsAdapter | null => {
     const ws = vscode.workspace.workspaceFolders?.[0];
@@ -148,11 +155,14 @@ export function activate(context: vscode.ExtensionContext) {
       return null;
     }
 
-    if (!adapter || adapterWorkspaceRoot !== ws.uri.fsPath) {
+    const bdPath = getBdPath();
+
+    if (!adapter || adapterWorkspaceRoot !== ws.uri.fsPath || adapterBdPath !== bdPath) {
       adapter?.dispose();
       output.appendLine('[Extension] Using DaemonBeadsAdapter');
-      adapter = new DaemonBeadsAdapter(ws.uri.fsPath, output);
+      adapter = new DaemonBeadsAdapter(ws.uri.fsPath, output, bdPath);
       adapterWorkspaceRoot = ws.uri.fsPath;
+      adapterBdPath = bdPath;
     }
 
     return adapter;
@@ -168,9 +178,12 @@ export function activate(context: vscode.ExtensionContext) {
       return null;
     }
 
-    if (!daemonManager || daemonWorkspaceRoot !== ws.uri.fsPath) {
-      daemonManager = new DaemonManager(ws.uri.fsPath, output);
+    const bdPath = getBdPath();
+
+    if (!daemonManager || daemonWorkspaceRoot !== ws.uri.fsPath || daemonBdPath !== bdPath) {
+      daemonManager = new DaemonManager(ws.uri.fsPath, output, bdPath);
       daemonWorkspaceRoot = ws.uri.fsPath;
+      daemonBdPath = bdPath;
       autoStartAttempted = false;
     }
 
