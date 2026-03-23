@@ -97,7 +97,8 @@ npm run lint
 npm run compile
 
 # 5. Package the extension (verify VSIX is created)
-npx @vscode/vsce package
+npm run package
+# or equivalently: npx vsce package --no-dependencies
 
 # 6. Verify the package contents
 npx @vscode/vsce ls

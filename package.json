@@ -97,6 +97,19 @@
           "type": "string",
           "default": "",
           "description": "Issue ID prefix (e.g., 'my-project'). Leave empty to auto-detect from database. Use 'bd rename-prefix <new-prefix>' CLI command to change existing issue prefixes."
+        },
+        "beadsKanban.bdPath": {
+          "type": "string",
+          "default": "",
+          "description": "Path to the bd CLI executable (e.g., '/home/user/.local/bin/bd' or 'C:\\Users\\user\\AppData\\Local\\beads\\bd.exe'). Leave empty to use the system PATH. Useful when bd is installed in a location not on the global PATH, such as a project-local or user-local installation."
+        },
+        "beadsKanban.additionalEnvPath": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Additional directories to prepend to PATH when the extension runs bd commands. The extension automatically reads terminal.integrated.env.<platform>.PATH from settings.json and .code-workspace — you may not need this setting if bd and dolt are already listed there. Use this only for directories that should apply specifically to the extension (e.g. a project-local bd build) and not to the terminal. Each entry is a directory path; leading ~ is expanded to the user home directory. Example: [\"/opt/homebrew/bin\", \"~/.local/bin\"]"
         }
       }
     }
@@ -108,6 +121,7 @@
     "build-webview": "node scripts/build-webview.js",
     "copy-deps": "node scripts/copy-deps.js",
     "watch": "node scripts/build-extension.js --watch",
+    "package": "npx vsce package --no-dependencies",
     "lint": "eslint src --ext ts",
     "pretest": "tsc -p . && npm run copy-deps && npm run build-webview",
     "test": "vscode-test",
@@ -132,6 +146,7 @@
     "@typescript-eslint/parser": "^8.53.0",
     "@vscode/test-cli": "^0.0.9",
     "@vscode/test-electron": "^2.5.2",
+    "@vscode/vsce": "^3.7.1",
     "better-sqlite3": "^12.5.0",
     "c8": "^9.1.0",
     "chai": "^4.5.0",

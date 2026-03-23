@@ -1,6 +1,7 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import { buildSpawnEnv } from './spawnUtils';
 
 /**
  * Execute a command using spawn (more secure than exec)
@@ -9,9 +10,9 @@ import * as fs from 'fs';
  * @param cwd Working directory
  * @returns Promise resolving to stdout
  */
-function spawnAsync(command: string, args: string[], cwd: string): Promise<{ stdout: string; stderr: string }> {
+function spawnAsync(command: string, args: string[], cwd: string, env?: NodeJS.ProcessEnv): Promise<{ stdout: string; stderr: string }> {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, shell: false });
+    const child = spawn(command, args, { cwd, shell: false, env });
     let stdout = '';
     let stderr = '';
 
@@ -56,9 +57,11 @@ export interface DaemonInfo {
 
 export class DaemonManager {
   private workspaceRoot: string;
+  private bdExecutable: string;
+  private additionalEnvPath: string[];
   private logger?: { appendLine: (value: string) => void };
 
-  constructor(workspaceRoot: string, logger?: { appendLine: (value: string) => void }) {
+  constructor(workspaceRoot: string, logger?: { appendLine: (value: string) => void }, bdPath?: string, additionalEnvPath?: string[]) {
     // Validate and normalize workspace path to prevent command injection
     if (!workspaceRoot || typeof workspaceRoot !== 'string') {
       throw new Error('Invalid workspace root: must be a non-empty string');
@@ -98,11 +101,13 @@ export class DaemonManager {
 
     this.workspaceRoot = normalized;
     this.logger = logger;
+    this.bdExecutable = bdPath && bdPath.trim() ? bdPath.trim() : 'bd';
+    this.additionalEnvPath = additionalEnvPath ?? [];
   }
 
   private logSpawnError(args: string[], error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
-    const command = `bd ${args.join(' ')}`;
+    const command = `${this.bdExecutable} ${args.join(' ')}`;
     const logLine = `[DaemonManager] ${command} failed: ${message}`;
 
     if (this.logger) {
@@ -120,7 +125,7 @@ export class DaemonManager {
    */
   async getStatus(): Promise<DaemonStatus> {
     try {
-      const { stdout } = await spawnAsync('bd', ['info', '--json'], this.workspaceRoot);
+      const { stdout } = await spawnAsync(this.bdExecutable, ['info', '--json'], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
       if (!stdout.trim()) {
         return { running: false, healthy: false };
       }
@@ -150,7 +155,7 @@ export class DaemonManager {
    */
   async listAllDaemons(): Promise<DaemonInfo[]> {
     try {
-      const { stdout } = await spawnAsync('bd', ['daemon', 'list', '--json'], this.workspaceRoot);
+      const { stdout } = await spawnAsync(this.bdExecutable, ['daemon', 'list', '--json'], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
 
       if (!stdout.trim()) {
         return [];
@@ -177,7 +182,7 @@ export class DaemonManager {
    */
   async checkHealth(): Promise<{ healthy: boolean; issues: string[] }> {
     try {
-      const { stdout } = await spawnAsync('bd', ['daemon', 'health', '--json'], this.workspaceRoot);
+      const { stdout } = await spawnAsync(this.bdExecutable, ['daemon', 'health', '--json'], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
 
       if (!stdout.trim()) {
         return { healthy: true, issues: [] };
@@ -217,7 +222,7 @@ export class DaemonManager {
    */
   async start(): Promise<void> {
     try {
-      await spawnAsync('bd', ['daemon', 'start'], this.workspaceRoot);
+      await spawnAsync(this.bdExecutable, ['daemon', 'start'], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
     } catch (error) {
       this.logSpawnError(['daemon', 'start'], error);
       throw error;
@@ -226,7 +231,7 @@ export class DaemonManager {
 
   async restart(): Promise<void> {
     try {
-      await spawnAsync('bd', ['daemon', 'restart', this.workspaceRoot], this.workspaceRoot);
+      await spawnAsync(this.bdExecutable, ['daemon', 'restart', this.workspaceRoot], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
     } catch (error) {
       this.logSpawnError(['daemon', 'restart', this.workspaceRoot], error);
       throw error;
@@ -238,7 +243,7 @@ export class DaemonManager {
    */
   async stop(): Promise<void> {
     try {
-      await spawnAsync('bd', ['daemon', 'stop', this.workspaceRoot], this.workspaceRoot);
+      await spawnAsync(this.bdExecutable, ['daemon', 'stop', this.workspaceRoot], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
     } catch (error) {
       this.logSpawnError(['daemon', 'stop', this.workspaceRoot], error);
       throw error;
@@ -252,7 +257,7 @@ export class DaemonManager {
     try {
       // Validate lines parameter
       const safeLines = Math.max(1, Math.min(1000, Math.floor(lines)));
-      const { stdout } = await spawnAsync('bd', ['daemon', 'logs', this.workspaceRoot, '-n', String(safeLines)], this.workspaceRoot);
+      const { stdout } = await spawnAsync(this.bdExecutable, ['daemon', 'logs', this.workspaceRoot, '-n', String(safeLines)], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
       return stdout;
     } catch (error) {
       this.logSpawnError(['daemon', 'logs', this.workspaceRoot, '-n', String(lines)], error);

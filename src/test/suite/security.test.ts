@@ -1,5 +1,6 @@
 import * as assert from 'assert';
 import { DaemonBeadsAdapter } from '../../daemonBeadsAdapter';
+import { buildSpawnEnv, resolveEnvVarRefs, getVSCodePlatformName } from '../../spawnUtils';
 import {
     IssueCreateSchema,
     IssueUpdateSchema,
@@ -9,6 +10,8 @@ import {
 } from '../../types';
 import * as vscode from 'vscode';
 import * as sinon from 'sinon';
+import * as os from 'os';
+import * as path from 'path';
 
 // Import sanitizeError functions for testing (they're not exported, so we'll test through public APIs)
 // We can access private methods via type casting for testing purposes
@@ -499,6 +502,135 @@ suite('Security Tests', () => {
             // CLI validates and sanitizes all input before database operations
             // spawn() with shell: false prevents command injection
             assert.ok(true, 'CLI validates input and prevents injection');
+        });
+    });
+
+    suite('buildSpawnEnv() - PATH augmentation for GUI-launched VS Code', () => {
+        test('Returns copy of process.env when additionalPaths is empty', () => {
+            const env = buildSpawnEnv([]);
+            assert.strictEqual(env.PATH, process.env.PATH, 'PATH should be unchanged for empty input');
+        });
+
+        test('Prepends a single directory to PATH', () => {
+            const extra = '/opt/homebrew/bin';
+            const env = buildSpawnEnv([extra]);
+            assert.ok(env.PATH?.startsWith(extra), 'Extra dir should be at the front of PATH');
+            const rest = env.PATH?.slice(extra.length + 1); // skip separator
+            assert.strictEqual(rest, process.env.PATH ?? '', 'Original PATH should follow');
+        });
+
+        test('Prepends multiple directories in order', () => {
+            const dirs = ['/first/bin', '/second/bin'];
+            const env = buildSpawnEnv(dirs);
+            const sep = path.delimiter;
+            const expected = dirs.join(sep);
+            assert.ok(env.PATH?.startsWith(expected), 'Dirs should appear in order at front of PATH');
+        });
+
+        test('Expands leading ~ to home directory', () => {
+            const env = buildSpawnEnv(['~/.local/bin']);
+            const expected = path.join(os.homedir(), '.local/bin');
+            assert.ok(env.PATH?.startsWith(expected), `~ should expand to ${os.homedir()}`);
+        });
+
+        test('Filters out empty entries', () => {
+            const env = buildSpawnEnv(['', '   ', '/valid/bin']);
+            assert.ok(env.PATH?.includes('/valid/bin'), 'Valid entry should still appear');
+            // The leading part should be /valid/bin, not empty strings
+            const parts = env.PATH?.split(path.delimiter) ?? [];
+            assert.ok(!parts.includes(''), 'Empty strings should not appear in PATH');
+            assert.ok(!parts.includes('   '), 'Whitespace-only strings should not appear in PATH');
+        });
+
+        test('Strips null bytes from path entries', () => {
+            const malicious = '/usr/bin\0evil';
+            const env = buildSpawnEnv([malicious]);
+            assert.ok(!env.PATH?.includes('\0'), 'Null bytes should be removed');
+            assert.ok(env.PATH?.includes('/usr/binevil'), 'Content after null byte is preserved (null byte stripped only)');
+        });
+
+        test('Preserves all other process.env variables', () => {
+            const env = buildSpawnEnv(['/extra/bin']);
+            // Every key that was in process.env should still be in the result
+            for (const key of Object.keys(process.env)) {
+                if (key === 'PATH') { continue; } // PATH is intentionally modified
+                assert.strictEqual(env[key], process.env[key], `env.${key} should be preserved`);
+            }
+        });
+
+        test('DaemonBeadsAdapter accepts additionalEnvPath constructor argument', () => {
+            const output = {
+                appendLine: () => { /* no-op */ },
+                show: () => { /* no-op */ },
+                dispose: () => { /* no-op */ }
+            } as unknown as vscode.OutputChannel;
+            // Should not throw when constructed with additionalEnvPath
+            assert.doesNotThrow(() => {
+                const adapter = new DaemonBeadsAdapter('/fake/workspace', output, 'bd', ['/opt/homebrew/bin']);
+                adapter.dispose();
+            }, 'DaemonBeadsAdapter should accept additionalEnvPath');
+        });
+    });
+
+    suite('resolveEnvVarRefs() - VS Code terminal.integrated.env variable substitution', () => {
+        test('Replaces ${env:VARNAME} with the value from the supplied env', () => {
+            const result = resolveEnvVarRefs('${env:HOME}/bin', { HOME: '/users/alice' });
+            assert.strictEqual(result, '/users/alice/bin');
+        });
+
+        test('Replaces multiple references in one string', () => {
+            const result = resolveEnvVarRefs(
+                '/extra:${env:PATH}:${env:EXTRA}',
+                { PATH: '/usr/bin', EXTRA: '/opt/bin' }
+            );
+            assert.strictEqual(result, '/extra:/usr/bin:/opt/bin');
+        });
+
+        test('Resolves ${env:PATH} reference using process.env by default', () => {
+            const result = resolveEnvVarRefs('${env:PATH}');
+            assert.strictEqual(result, process.env.PATH ?? '', 'Should use process.env when no env arg given');
+        });
+
+        test('Unknown variable resolves to empty string', () => {
+            const result = resolveEnvVarRefs('${env:DOES_NOT_EXIST_XYZ}', {});
+            assert.strictEqual(result, '');
+        });
+
+        test('String without references is returned unchanged', () => {
+            const input = '/opt/homebrew/bin:/usr/local/bin';
+            assert.strictEqual(resolveEnvVarRefs(input, {}), input);
+        });
+
+        test('Typical terminal.integrated.env PATH pattern is resolved correctly', () => {
+            // Common pattern users write in settings.json:
+            // "terminal.integrated.env.linux": { "PATH": "/opt/homebrew/bin:${env:PATH}" }
+            const result = resolveEnvVarRefs('/opt/homebrew/bin:${env:PATH}', { PATH: '/usr/bin:/bin' });
+            assert.strictEqual(result, '/opt/homebrew/bin:/usr/bin:/bin');
+        });
+
+        test('Empty string is returned unchanged', () => {
+            assert.strictEqual(resolveEnvVarRefs('', {}), '');
+        });
+    });
+
+    suite('getVSCodePlatformName() - platform name for terminal.integrated.env.*', () => {
+        test('Returns one of the three valid VS Code platform keys', () => {
+            const name = getVSCodePlatformName();
+            assert.ok(
+                name === 'linux' || name === 'osx' || name === 'windows',
+                `Expected 'linux', 'osx', or 'windows', got '${name}'`
+            );
+        });
+
+        test('Returns a string consistent with process.platform', () => {
+            const name = getVSCodePlatformName();
+            if (process.platform === 'darwin') {
+                assert.strictEqual(name, 'osx');
+            } else if (process.platform === 'win32') {
+                assert.strictEqual(name, 'windows');
+            } else {
+                assert.strictEqual(name, 'linux');
+            }
         });
     });
 });
