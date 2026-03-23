@@ -506,54 +506,66 @@ suite('Security Tests', () => {
     });
 
     suite('buildSpawnEnv() - PATH augmentation for GUI-launched VS Code', () => {
+        // Helper: find the actual PATH key in process.env (may be 'Path' on Windows)
+        function getPathKey(): string {
+            return Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH';
+        }
+
         test('Returns copy of process.env when additionalPaths is empty', () => {
+            const pathKey = getPathKey();
             const env = buildSpawnEnv([]);
-            assert.strictEqual(env.PATH, process.env.PATH, 'PATH should be unchanged for empty input');
+            assert.strictEqual(env[pathKey], process.env[pathKey], 'PATH should be unchanged for empty input');
         });
 
         test('Prepends a single directory to PATH', () => {
+            const pathKey = getPathKey();
             const extra = '/opt/homebrew/bin';
             const env = buildSpawnEnv([extra]);
-            assert.ok(env.PATH?.startsWith(extra), 'Extra dir should be at the front of PATH');
-            const rest = env.PATH?.slice(extra.length + 1); // skip separator
-            assert.strictEqual(rest, process.env.PATH ?? '', 'Original PATH should follow');
+            assert.ok(env[pathKey]?.startsWith(extra), 'Extra dir should be at the front of PATH');
+            const rest = env[pathKey]?.slice(extra.length + 1); // skip separator
+            assert.strictEqual(rest, process.env[pathKey] ?? '', 'Original PATH should follow');
         });
 
         test('Prepends multiple directories in order', () => {
+            const pathKey = getPathKey();
             const dirs = ['/first/bin', '/second/bin'];
             const env = buildSpawnEnv(dirs);
             const sep = path.delimiter;
             const expected = dirs.join(sep);
-            assert.ok(env.PATH?.startsWith(expected), 'Dirs should appear in order at front of PATH');
+            assert.ok(env[pathKey]?.startsWith(expected), 'Dirs should appear in order at front of PATH');
         });
 
         test('Expands leading ~ to home directory', () => {
+            const pathKey = getPathKey();
             const env = buildSpawnEnv(['~/.local/bin']);
             const expected = path.join(os.homedir(), '.local/bin');
-            assert.ok(env.PATH?.startsWith(expected), `~ should expand to ${os.homedir()}`);
+            assert.ok(env[pathKey]?.startsWith(expected), `~ should expand to ${os.homedir()}`);
         });
 
         test('Filters out empty entries', () => {
+            const pathKey = getPathKey();
             const env = buildSpawnEnv(['', '   ', '/valid/bin']);
-            assert.ok(env.PATH?.includes('/valid/bin'), 'Valid entry should still appear');
+            assert.ok(env[pathKey]?.includes('/valid/bin'), 'Valid entry should still appear');
             // The leading part should be /valid/bin, not empty strings
-            const parts = env.PATH?.split(path.delimiter) ?? [];
+            const parts = env[pathKey]?.split(path.delimiter) ?? [];
             assert.ok(!parts.includes(''), 'Empty strings should not appear in PATH');
             assert.ok(!parts.includes('   '), 'Whitespace-only strings should not appear in PATH');
         });
 
         test('Strips null bytes from path entries', () => {
+            const pathKey = getPathKey();
             const malicious = '/usr/bin\0evil';
             const env = buildSpawnEnv([malicious]);
-            assert.ok(!env.PATH?.includes('\0'), 'Null bytes should be removed');
-            assert.ok(env.PATH?.includes('/usr/binevil'), 'Content after null byte is preserved (null byte stripped only)');
+            assert.ok(!env[pathKey]?.includes('\0'), 'Null bytes should be removed');
+            assert.ok(env[pathKey]?.includes('/usr/binevil'), 'Content after null byte is preserved (null byte stripped only)');
         });
 
         test('Preserves all other process.env variables', () => {
+            const pathKey = getPathKey();
             const env = buildSpawnEnv(['/extra/bin']);
             // Every key that was in process.env should still be in the result
             for (const key of Object.keys(process.env)) {
-                if (key === 'PATH') { continue; } // PATH is intentionally modified
+                if (key.toUpperCase() === 'PATH') { continue; } // PATH is intentionally modified
                 assert.strictEqual(env[key], process.env[key], `env.${key} should be preserved`);
             }
         });

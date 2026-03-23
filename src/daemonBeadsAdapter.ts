@@ -1660,6 +1660,9 @@ export class DaemonBeadsAdapter {
     due_at?: string | null;
     defer_until?: string | null;
     status?: string;
+    pinned?: boolean;
+    is_template?: boolean;
+    ephemeral?: boolean;
   }): Promise<void> {
     this.validateIssueId(id);
 
@@ -1676,9 +1679,10 @@ export class DaemonBeadsAdapter {
     this.validateFlagValue(updates.defer_until, 'defer_until');
     this.validateFlagValue(updates.status, 'status');
 
-    // WORKAROUND: Use --no-daemon to bypass daemon bug with --due flag
-    // TODO: Test if this is still needed with bd 0.47.1+ and remove if fixed
-    const args = ['update', id, '--no-daemon'];
+    // Note: The --no-daemon flag was previously used here as a workaround for a bd bug
+    // with the --due flag, but it causes "Invalid data format" errors with newer bd versions
+    // that don't recognise the flag. Removed in v2.2.0.
+    const args = ['update', id];
 
     if (updates.title !== undefined) {args.push('--title', updates.title);}
     if (updates.description !== undefined) {args.push('--description', updates.description);}
@@ -1713,6 +1717,9 @@ export class DaemonBeadsAdapter {
       }
     }
     if (updates.status !== undefined) {args.push('--status', updates.status);}
+    if (updates.pinned !== undefined) {args.push('--pinned', updates.pinned ? 'true' : 'false');}
+    if (updates.is_template !== undefined) {args.push('--template', updates.is_template ? 'true' : 'false');}
+    if (updates.ephemeral !== undefined) {args.push('--ephemeral', updates.ephemeral ? 'true' : 'false');}
 
     try {
       await this.execBd(args);
@@ -1809,6 +1816,22 @@ export class DaemonBeadsAdapter {
       this.trackMutation();
     } catch (error) {
       const msg = `Failed to add dependency: ${error instanceof Error ? error.message : String(error)}`;
+      this.output.appendLine(`[DaemonBeadsAdapter] ERROR: ${msg}`);
+      throw new Error(msg);
+    }
+  }
+
+  /**
+   * Delete an issue permanently using bd CLI
+   * @param id Issue ID to delete
+   */
+  public async deleteIssue(id: string): Promise<void> {
+    this.validateIssueId(id);
+    try {
+      await this.execBd(['delete', id, '--force']);
+      this.trackMutation();
+    } catch (error) {
+      const msg = `Failed to delete issue: ${error instanceof Error ? error.message : String(error)}`;
       this.output.appendLine(`[DaemonBeadsAdapter] ERROR: ${msg}`);
       throw new Error(msg);
     }

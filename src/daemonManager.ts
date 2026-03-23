@@ -220,11 +220,18 @@ export class DaemonManager {
   /**
    * Start the daemon for this workspace
    */
-  async start(): Promise<void> {
+  async start(): Promise<boolean> {
     try {
       await spawnAsync(this.bdExecutable, ['daemon', 'start'], this.workspaceRoot, buildSpawnEnv(this.additionalEnvPath));
+      return true;
     } catch (error) {
       this.logSpawnError(['daemon', 'start'], error);
+      // If the subcommand is unknown (newer bd removed the daemon subcommand),
+      // return false so callers can degrade gracefully without showing an error popup.
+      const msg = error instanceof Error ? error.message : String(error);
+      if (msg.includes('unknown command')) {
+        return false;
+      }
       throw error;
     }
   }

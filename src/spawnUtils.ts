@@ -43,9 +43,19 @@ export function resolveEnvVarRefs(value: string, env: NodeJS.ProcessEnv = proces
  * directory. Null bytes and empty entries are filtered out. The existing PATH is
  * always preserved at the end.
  *
+ * On Windows the environment variable may be stored under the key `Path` rather
+ * than `PATH`; this function handles that automatically.
+ *
  * @param additionalPaths - Directories to prepend to PATH (order is preserved)
  * @returns A NodeJS.ProcessEnv with the augmented PATH
  */
+
+// Cache the actual PATH key name once at module load time.
+// On Windows the key may be 'Path', 'PATH', 'path', etc. — find it once.
+const _pathEnvKey: string = process.platform === 'win32'
+  ? (Object.keys(process.env).find(k => k.toUpperCase() === 'PATH') ?? 'PATH')
+  : 'PATH';
+
 export function buildSpawnEnv(additionalPaths: string[]): NodeJS.ProcessEnv {
   const expanded = additionalPaths
     .map(p => p.replace(/\0/g, ''))                                       // strip null bytes
@@ -63,8 +73,8 @@ export function buildSpawnEnv(additionalPaths: string[]): NodeJS.ProcessEnv {
   }
 
   const separator = path.delimiter; // ':' on POSIX, ';' on Windows
-  const existingPath = process.env.PATH ?? '';
+  const existingPath = process.env[_pathEnvKey] ?? '';
   const newPath = [...expanded, existingPath].filter(Boolean).join(separator);
 
-  return { ...process.env, PATH: newPath };
+  return { ...process.env, [_pathEnvKey]: newPath };
 }

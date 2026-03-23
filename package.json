@@ -22,7 +22,7 @@
     "agile",
     "visualization"
   ],
-  "version": "2.1.0",
+  "version": "2.2.1",
   "publisher": "davidcforbes",
   "icon": "images/icon.png",
   "engines": {
@@ -48,6 +48,24 @@
         "title": "Beads: Manage Daemon"
       }
     ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "beadsKanbanSidebar",
+          "title": "Beads Kanban",
+          "icon": "images/beads-sidebar.svg"
+        }
+      ]
+    },
+    "views": {
+      "beadsKanbanSidebar": [
+        {
+          "type": "webview",
+          "id": "beadsKanban.sidebarView",
+          "name": "Issues"
+        }
+      ]
+    },
     "configuration": {
       "title": "Agent Native Abstraction Layer for Beads",
       "properties": {
@@ -55,6 +73,11 @@
           "type": "boolean",
           "default": false,
           "description": "If true, disables write operations (create/move/update)."
+        },
+        "beadsKanban.simpleMode": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, hides advanced fields (Est. Minutes, Due At, Defer Until, Flags, Ext Ref, Acceptance Criteria, Design Notes, Notes) in the Create/Edit Issue form."
         },
         "beadsKanban.maxIssues": {
           "type": "number",
