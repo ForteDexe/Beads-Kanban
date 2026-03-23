@@ -1796,3 +1796,48 @@ main {
         height: 80px;
     }
 }
+
+/* Card right-click context menu */
+.card-context-menu {
+    position: fixed;
+    background: var(--vscode-menu-background);
+    border: 1px solid var(--vscode-menu-border);
+    border-radius: 4px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+    padding: 4px 0;
+    min-width: 160px;
+    z-index: 10000;
+    font-size: 13px;
+}
+
+.card-context-menu.hidden {
+    display: none;
+}
+
+.card-context-item {
+    padding: 6px 14px;
+    cursor: pointer;
+    color: var(--vscode-menu-foreground);
+    user-select: none;
+    transition: background-color 0.1s;
+}
+
+.card-context-item:hover {
+    background: var(--vscode-menu-selectionBackground);
+    color: var(--vscode-menu-selectionForeground);
+}
+
+.card-context-danger {
+    color: var(--vscode-errorForeground);
+}
+
+.card-context-danger:hover {
+    background: var(--vscode-inputValidation-errorBackground);
+    color: var(--vscode-errorForeground);
+}
+
+.card-context-separator {
+    height: 1px;
+    background: var(--vscode-menu-separatorBackground);
+    margin: 4px 0;
+}

@@ -115,6 +115,85 @@ function setupBoardEventDelegation() {
 // Initialize event delegation
 setupBoardEventDelegation();
 
+// Card right-click context menu
+(function setupCardContextMenu() {
+    const menu = document.getElementById('cardContextMenu');
+    if (!menu) return;
+
+    let activeCardId = null;
+
+    // Suppress the native context menu only when right-clicking a card.
+    // We leave the default menu untouched for all other elements (e.g. text inputs,
+    // links, the developer tools shortcut, etc.).
+    document.addEventListener('contextmenu', (e) => {
+        const cardEl = e.target.closest('.card');
+        if (!cardEl) {
+            // Not on a card — let the default menu appear and hide ours
+            hideCardMenu();
+            return;
+        }
+
+        // Right-click is on a card: show our custom menu instead
+        e.preventDefault();
+
+        activeCardId = cardEl.dataset.id || null;
+        if (!activeCardId) return;
+
+        // Position the menu near the cursor, keeping it inside the viewport
+        const menuWidth = 170;
+        const menuHeight = 80;
+        let x = e.clientX;
+        let y = e.clientY;
+        if (x + menuWidth > window.innerWidth) { x = window.innerWidth - menuWidth - 4; }
+        if (y + menuHeight > window.innerHeight) { y = window.innerHeight - menuHeight - 4; }
+
+        menu.style.left = x + 'px';
+        menu.style.top = y + 'px';
+        menu.classList.remove('hidden');
+    });
+
+    function hideCardMenu() {
+        menu.classList.add('hidden');
+        activeCardId = null;
+    }
+
+    // Hide menu on any click elsewhere
+    document.addEventListener('click', (e) => {
+        if (!menu.contains(e.target)) {
+            hideCardMenu();
+        }
+    });
+
+    // Handle menu item actions
+    menu.addEventListener('click', async (e) => {
+        const item = e.target.closest('.card-context-item');
+        if (!item || !activeCardId) { hideCardMenu(); return; }
+
+        const action = item.dataset.action;
+        const cardId = activeCardId;
+        hideCardMenu();
+
+        if (action === 'copyId') {
+            try {
+                await postAsync('issue.copyToClipboard', { text: cardId }, 'Copying...');
+                toast('Issue ID copied: ' + cardId);
+            } catch (err) {
+                toast('Failed to copy: ' + err.message);
+            }
+        } else if (action === 'delete') {
+            // Use toast-based confirmation (window.confirm not supported in VS Code webviews)
+            toast('Delete issue ' + cardId + '? This cannot be undone.', 'Delete', async () => {
+                try {
+                    await postAsync('issue.delete', { id: cardId }, 'Deleting issue...');
+                    toast('Issue deleted: ' + cardId);
+                } catch (err) {
+                    toast('Failed to delete: ' + err.message);
+                }
+            });
+        }
+    });
+})();
+
 // Custom priority filter dropdown logic
 function getSelectedPriorities() {
     if (!filterPriorityDropdown) return [];

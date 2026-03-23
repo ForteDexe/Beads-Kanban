@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import * as path from "path";
+import * as crypto from "crypto";
 import { DaemonBeadsAdapter } from "./daemonBeadsAdapter";
 import { DaemonManager } from "./daemonManager";
 import { getWebviewHtml } from "./webview";
@@ -44,11 +45,12 @@ type WebMsg =
   | { type: "issue.addLabel"; requestId: string; payload: { id: string; label: string } }
   | { type: "issue.removeLabel"; requestId: string; payload: { id: string; label: string } }
   | { type: "issue.addDependency"; requestId: string; payload: { id: string; otherId: string; type: 'parent-child' | 'blocks' } }
-  | { type: "issue.removeDependency"; requestId: string; payload: { id: string; otherId: string } };
+  | { type: "issue.removeDependency"; requestId: string; payload: { id: string; otherId: string } }
+  | { type: "issue.delete"; requestId: string; payload: { id: string } };
 
 type ExtMsg =
   | { type: "board.data"; requestId: string; payload: BoardData }
-  | { type: "board.minimal"; requestId: string; payload: { cards: MinimalCard[] } }
+  | { type: "board.minimal"; requestId: string; payload: { cards: MinimalCard[]; readOnly?: boolean; simpleMode?: boolean } }
   | { type: "board.columnData"; requestId: string; payload: { column: BoardColumnKey; cards: BoardCard[]; offset: number; totalCount: number; hasMore: boolean } }
   | { type: "table.pageData"; requestId: string; payload: { cards: BoardCard[]; offset: number; totalCount: number; hasMore: boolean } }
   | { type: "issue.full"; requestId: string; payload: { card: FullCard } }
@@ -596,7 +598,7 @@ export function activate(context: vscode.ExtensionContext) {
           const data = await adapter.getBoardMetadata();
           data.columnData = columnDataMap;
           data.readOnly = readOnly; // Propagate read-only mode to webview UI
-          (data as Record<string, unknown>).simpleMode = simpleMode;
+          data.simpleMode = simpleMode;
 
           // Validate markdown content in column cards (defense-in-depth)
           // Note: data.cards is now empty array from getBoardMetadata, actual cards are in columnData
@@ -620,7 +622,7 @@ export function activate(context: vscode.ExtensionContext) {
           output.appendLine(`[Extension] Adapter does not support incremental loading, using legacy getBoard()`);
           const data = await adapter.getBoard();
           data.readOnly = readOnly; // Propagate read-only mode to webview UI
-          (data as Record<string, unknown>).simpleMode = simpleMode;
+          data.simpleMode = simpleMode;
           output.appendLine(`[Extension] Got board data: ${data.cards?.length || 0} cards`);
 
           // Validate markdown content in all cards (defense-in-depth)
@@ -917,7 +919,7 @@ export function activate(context: vscode.ExtensionContext) {
             try {
               const data = await adapter.getBoard();
               data.readOnly = readOnly; // Propagate read-only mode to webview UI
-              (data as Record<string, unknown>).simpleMode = simpleMode;
+              data.simpleMode = simpleMode;
               post({ type: "board.data", requestId: msg.requestId, payload: data });
             } catch (err) {
               output.appendLine(`[Extension] Error loading board after repo switch: ${err}`);
@@ -1119,6 +1121,18 @@ export function activate(context: vscode.ExtensionContext) {
             return;
         }
 
+        if (msg.type === "issue.delete") {
+            const validation = IssueIdSchema.safeParse(msg.payload.id);
+            if (!validation.success) {
+              post({ type: "mutation.error", requestId: msg.requestId, error: "Invalid issue ID format" });
+              return;
+            }
+            await adapter.deleteIssue(validation.data);
+            post({ type: "mutation.ok", requestId: msg.requestId });
+            await sendBoard(msg.requestId);
+            return;
+        }
+
         post({ type: "mutation.error", requestId: (msg as { requestId: string; type: string }).requestId, error: `Unknown message type: ${(msg as { type: string }).type}` });
       } catch (e) {
         post({
@@ -1286,7 +1300,10 @@ export function deactivate() {
 }
 
 /**
- * Sidebar WebviewViewProvider - shows a table of issues in the activity bar sidebar
+ * Sidebar WebviewViewProvider — shown in the VS Code activity bar under the Beads
+ * Kanban icon.  Displays a compact, read-only table of the most recent issues so
+ * users can browse their backlog without opening the full Kanban board.  Includes
+ * an "Open Board" button that fires the `beadsKanban.openBoard` command.
  */
 class BeadsSidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
@@ -1350,8 +1367,7 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'styles.css')
     );
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const nonce = (require('crypto') as typeof import('crypto')).randomBytes(16).toString('hex');
+    const nonce = crypto.randomBytes(16).toString('hex');
     return `<!DOCTYPE html>
 <html lang="en">
 <head>

@@ -1822,6 +1822,22 @@ export class DaemonBeadsAdapter {
   }
 
   /**
+   * Delete an issue permanently using bd CLI
+   * @param id Issue ID to delete
+   */
+  public async deleteIssue(id: string): Promise<void> {
+    this.validateIssueId(id);
+    try {
+      await this.execBd(['delete', id, '--force']);
+      this.trackMutation();
+    } catch (error) {
+      const msg = `Failed to delete issue: ${error instanceof Error ? error.message : String(error)}`;
+      this.output.appendLine(`[DaemonBeadsAdapter] ERROR: ${msg}`);
+      throw new Error(msg);
+    }
+  }
+
+  /**
    * Remove a dependency between issues
    */
   public async removeDependency(issueId: string, dependsOnId: string): Promise<void> {

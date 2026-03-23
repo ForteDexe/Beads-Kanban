@@ -1,6 +1,6 @@
 import { z } from 'zod';
 
-export type IssueStatus = "open" | "in_progress" | "blocked" | "closed";
+export type IssueStatus = "open" | "in_progress" | "blocked" | "deferred" | "closed";
 
 export type IssueType = "task" | "bug" | "feature" | "epic" | "chore";
 
@@ -212,6 +212,8 @@ export interface BoardData {
   columnData?: ColumnDataMap;
   // Read-only mode flag - when true, webview should disable all mutation controls
   readOnly?: boolean;
+  // Simple mode flag - when true, webview hides advanced fields in create/edit dialogs
+  simpleMode?: boolean;
 }
 
 // Helper types for incremental loading
@@ -287,7 +289,7 @@ export const IssueCreateSchema = z.object({
 
 export const SetStatusSchema = z.object({
   id: IssueIdSchema,
-  status: z.enum(['open', 'in_progress', 'blocked', 'closed'])
+  status: z.enum(['open', 'in_progress', 'blocked', 'deferred', 'closed'])
 });
 
 export const CommentAddSchema = z.object({
