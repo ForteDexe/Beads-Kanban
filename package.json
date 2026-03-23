@@ -121,7 +121,7 @@
     "build-webview": "node scripts/build-webview.js",
     "copy-deps": "node scripts/copy-deps.js",
     "watch": "node scripts/build-extension.js --watch",
-    "package": "vsce package --no-dependencies",
+    "package": "npx vsce package --no-dependencies",
     "lint": "eslint src --ext ts",
     "pretest": "tsc -p . && npm run copy-deps && npm run build-webview",
     "test": "vscode-test",
