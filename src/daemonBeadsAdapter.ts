@@ -1595,15 +1595,7 @@ export class DaemonBeadsAdapter {
         await this.setIssueStatus(issueId, input.status);
       }
       
-      // Set pinned and is_template flags if needed (bd create doesn't support these)
-      const updateArgs = [];
-      if (input.pinned) {updateArgs.push('--pinned', 'true');}
-      if (input.is_template) {updateArgs.push('--template', 'true');}
-      
-      if (updateArgs.length > 0) {
-        await this.execBd(['update', issueId, ...updateArgs]);
-        this.trackMutation();
-      }
+      // Note: bd update does not support --pinned or --template flags; skip them after creation.
 
       // Set children (add parent-child relationship from child side)
       if (input.children_ids && input.children_ids.length > 0) {
@@ -1717,9 +1709,10 @@ export class DaemonBeadsAdapter {
       }
     }
     if (updates.status !== undefined) {args.push('--status', updates.status);}
-    if (updates.pinned !== undefined) {args.push('--pinned', updates.pinned ? 'true' : 'false');}
-    if (updates.is_template !== undefined) {args.push('--template', updates.is_template ? 'true' : 'false');}
-    if (updates.ephemeral !== undefined) {args.push('--ephemeral', updates.ephemeral ? 'true' : 'false');}
+    // Note: bd update does not support --pinned or --template flags; skip them silently.
+    // --ephemeral is a boolean toggle flag (no value); use --persistent to un-set it.
+    if (updates.ephemeral === true) {args.push('--ephemeral');}
+    else if (updates.ephemeral === false) {args.push('--persistent');}
 
     try {
       await this.execBd(args);

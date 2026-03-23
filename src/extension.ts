@@ -39,7 +39,7 @@ type WebMsg =
   | { type: "issue.move"; requestId: string; payload: { id: string; toColumn: BoardColumnKey } }
   | { type: "issue.getFull"; requestId: string; payload: { id: string } }
   | { type: "issue.addToChat"; requestId: string; payload: { text: string } }
-  | { type: "issue.copyToClipboard"; requestId: string; payload: { text: string } }
+  | { type: "issue.copyToClipboard"; requestId: string; payload: { text: string; silent?: boolean } }
   | { type: "issue.update"; requestId: string; payload: { id: string; updates: unknown } }
   | { type: "issue.addComment"; requestId: string; payload: { id: string; text: string; author?: string } }
   | { type: "issue.addLabel"; requestId: string; payload: { id: string; label: string } }
@@ -149,6 +149,8 @@ export function activate(context: vscode.ExtensionContext) {
   let statusBarItem: vscode.StatusBarItem | null = null;
   let updateDaemonStatus: (() => void) | null = null;
   let autoStartAttempted = false;
+  // Sidebar refresh callback — assigned when the sidebar provider is registered
+  let refreshSidebar: (() => void) | null = null;
 
   const getBdSpawnConfig = (): { bdPath: string; additionalEnvPath: string[] } => {
     const ws = vscode.workspace.workspaceFolders?.[0];
@@ -961,6 +963,7 @@ export function activate(context: vscode.ExtensionContext) {
           
           const created = await adapter.createIssue(validation.data);
           post({ type: "mutation.ok", requestId: msg.requestId, payload: { id: created.id } });
+          refreshSidebar?.();
           // push refreshed board
           await sendBoard(msg.requestId);
           return;
@@ -1001,7 +1004,9 @@ export function activate(context: vscode.ExtensionContext) {
             const sanitizedText = sanitizeForCSV(msg.payload.text);
             vscode.env.clipboard.writeText(sanitizedText);
             post({ type: "mutation.ok", requestId: msg.requestId });
-            vscode.window.showInformationMessage("Issue context copied to clipboard.");
+            if (!msg.payload.silent) {
+              vscode.window.showInformationMessage("Issue context copied to clipboard.");
+            }
             return;
         }
 
@@ -1027,6 +1032,7 @@ export function activate(context: vscode.ExtensionContext) {
           
           await adapter.updateIssue(validation.data.id, validation.data.updates);
           post({ type: "mutation.ok", requestId: msg.requestId });
+          refreshSidebar?.();
           await sendBoard(msg.requestId);
           return;
         }
@@ -1129,6 +1135,8 @@ export function activate(context: vscode.ExtensionContext) {
             }
             await adapter.deleteIssue(validation.data);
             post({ type: "mutation.ok", requestId: msg.requestId });
+            vscode.window.showInformationMessage(`Issue ${validation.data} deleted.`);
+            refreshSidebar?.();
             await sendBoard(msg.requestId);
             return;
         }
@@ -1288,6 +1296,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register sidebar webview view provider
   const sidebarProvider = new BeadsSidebarProvider(context.extensionUri, ensureAdapter, output);
+  // Wire up callback so mutation handlers can trigger a sidebar refresh
+  refreshSidebar = () => sidebarProvider.refresh();
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('beadsKanban.sidebarView', sidebarProvider, {
       webviewOptions: { retainContextWhenHidden: true }
@@ -1313,6 +1323,13 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
     private readonly getAdapter: () => DaemonBeadsAdapter | null,
     private readonly output: vscode.OutputChannel
   ) {}
+
+  /** Trigger a data refresh if the sidebar is currently visible. */
+  public refresh() {
+    if (this._view?.visible) {
+      this._loadAndSendIssues(this._view.webview);
+    }
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView
@@ -1468,6 +1485,11 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
         content.innerHTML = '<div class="error-msg">' + escHtml(msg.message) + '</div>';
       }
     });
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+      vscode.postMessage({ type: 'loadIssues' });
+    }, 30000);
   </script>
 </body>
 </html>`;
