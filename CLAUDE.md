@@ -16,22 +16,21 @@ This is a VS Code extension that provides a Kanban board interface for issues st
 
 ### Packaging the Extension
 
-**IMPORTANT: Use PowerShell for packaging on Windows**
+Run from any shell (Linux, macOS, or Windows terminal):
 
-Git Bash has issues running `vsce package` (silent failures with no output). Always use PowerShell:
-
-```powershell
-# In PowerShell (not Git Bash)
-vsce package
+```bash
+npm run package
 ```
 
 This will:
-1. Run `vscode:prepublish` script (which runs `npm run compile`)
-2. Compile TypeScript, copy dependencies, and build webview bundle
-3. Create `beads-kanban-{version}.vsix` file
+1. Run `vscode:prepublish` (which runs `npm run compile`)
+2. Compile TypeScript, copy dependencies, and build webview bundles
+3. Create `beads-kanban-{version}.vsix` in the project root
+
+**Windows / Git Bash note:** If you hit silent failures in Git Bash, switch to PowerShell and run `npm run package` there instead.
 
 **Common Issues:**
-- If packaging fails silently in Git Bash, switch to PowerShell
+- Ensure `npm install` has been run so all devDependencies (including `@vscode/vsce`) are present
 - Ensure you've run `npm run compile` successfully before packaging
 - Check that all TypeScript files compile without errors (`tsc -p .`)
 
