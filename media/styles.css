@@ -417,8 +417,16 @@ body {
 
 .card.selected {
     border: 2px solid var(--vscode-focusBorder);
-    background: rgba(255, 255, 255, 0.06);
-    box-shadow: 0 0 8px rgba(0, 122, 204, 0.3);
+    background: rgba(255, 255, 255, 0.10);
+    box-shadow: 0 0 10px rgba(0, 122, 204, 0.45);
+    filter: brightness(1.15);
+}
+
+.card.context-selected {
+    border: 2px solid var(--vscode-focusBorder);
+    background: rgba(0, 122, 204, 0.18);
+    box-shadow: 0 0 10px rgba(0, 122, 204, 0.50);
+    filter: brightness(1.18);
 }
 
 .cardTitle {
@@ -536,6 +544,16 @@ body {
 
 .toast-btn:hover {
     background: rgba(255, 255, 255, 0.1);
+}
+
+.toast-cancel-btn {
+    color: var(--vscode-foreground);
+    opacity: 0.75;
+}
+
+.toast-cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.08);
+    opacity: 1;
 }
 
 .toast.hidden {
