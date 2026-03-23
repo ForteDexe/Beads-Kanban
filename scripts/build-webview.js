@@ -50,8 +50,21 @@ const buildGraphView = esbuild.build({
   logLevel: 'info'
 });
 
+// Bundle the sidebar table rendering module
+const buildSidebarTable = esbuild.build({
+  entryPoints: [path.join(__dirname, '../src/webview/sidebar-table.js')],
+  bundle: true,
+  outfile: path.join(outDir, 'sidebar-table.js'),
+  platform: 'browser',
+  target: ['es2020'],
+  format: 'iife',
+  minify: false,
+  sourcemap: true,
+  logLevel: 'info'
+});
+
 // Wait for all builds to complete
-Promise.all([buildBoard, buildGraphLayout, buildGraphView])
+Promise.all([buildBoard, buildGraphLayout, buildGraphView, buildSidebarTable])
   .then(() => {
     console.log('✓ Webview bundles built successfully');
   })

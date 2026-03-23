@@ -39,7 +39,7 @@ type WebMsg =
   | { type: "issue.move"; requestId: string; payload: { id: string; toColumn: BoardColumnKey } }
   | { type: "issue.getFull"; requestId: string; payload: { id: string } }
   | { type: "issue.addToChat"; requestId: string; payload: { text: string } }
-  | { type: "issue.copyToClipboard"; requestId: string; payload: { text: string } }
+  | { type: "issue.copyToClipboard"; requestId: string; payload: { text: string; silent?: boolean } }
   | { type: "issue.update"; requestId: string; payload: { id: string; updates: unknown } }
   | { type: "issue.addComment"; requestId: string; payload: { id: string; text: string; author?: string } }
   | { type: "issue.addLabel"; requestId: string; payload: { id: string; label: string } }
@@ -149,6 +149,8 @@ export function activate(context: vscode.ExtensionContext) {
   let statusBarItem: vscode.StatusBarItem | null = null;
   let updateDaemonStatus: (() => void) | null = null;
   let autoStartAttempted = false;
+  // Sidebar refresh callback — assigned when the sidebar provider is registered
+  let refreshSidebar: (() => void) | null = null;
 
   const getBdSpawnConfig = (): { bdPath: string; additionalEnvPath: string[] } => {
     const ws = vscode.workspace.workspaceFolders?.[0];
@@ -961,6 +963,7 @@ export function activate(context: vscode.ExtensionContext) {
           
           const created = await adapter.createIssue(validation.data);
           post({ type: "mutation.ok", requestId: msg.requestId, payload: { id: created.id } });
+          refreshSidebar?.();
           // push refreshed board
           await sendBoard(msg.requestId);
           return;
@@ -1001,7 +1004,9 @@ export function activate(context: vscode.ExtensionContext) {
             const sanitizedText = sanitizeForCSV(msg.payload.text);
             vscode.env.clipboard.writeText(sanitizedText);
             post({ type: "mutation.ok", requestId: msg.requestId });
-            vscode.window.showInformationMessage("Issue context copied to clipboard.");
+            if (!msg.payload.silent) {
+              vscode.window.showInformationMessage("Issue context copied to clipboard.");
+            }
             return;
         }
 
@@ -1027,6 +1032,7 @@ export function activate(context: vscode.ExtensionContext) {
           
           await adapter.updateIssue(validation.data.id, validation.data.updates);
           post({ type: "mutation.ok", requestId: msg.requestId });
+          refreshSidebar?.();
           await sendBoard(msg.requestId);
           return;
         }
@@ -1129,6 +1135,8 @@ export function activate(context: vscode.ExtensionContext) {
             }
             await adapter.deleteIssue(validation.data);
             post({ type: "mutation.ok", requestId: msg.requestId });
+            vscode.window.showInformationMessage(`Issue ${validation.data} deleted.`);
+            refreshSidebar?.();
             await sendBoard(msg.requestId);
             return;
         }
@@ -1288,6 +1296,8 @@ export function activate(context: vscode.ExtensionContext) {
 
   // Register sidebar webview view provider
   const sidebarProvider = new BeadsSidebarProvider(context.extensionUri, ensureAdapter, output);
+  // Wire up callback so mutation handlers can trigger a sidebar refresh
+  refreshSidebar = () => sidebarProvider.refresh();
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider('beadsKanban.sidebarView', sidebarProvider, {
       webviewOptions: { retainContextWhenHidden: true }
@@ -1313,6 +1323,13 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
     private readonly getAdapter: () => DaemonBeadsAdapter | null,
     private readonly output: vscode.OutputChannel
   ) {}
+
+  /** Trigger a data refresh if the sidebar is currently visible. */
+  public refresh() {
+    if (this._view?.visible) {
+      this._loadAndSendIssues(this._view.webview);
+    }
+  }
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView
@@ -1367,6 +1384,11 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
     const styleUri = webview.asWebviewUri(
       vscode.Uri.joinPath(this.extensionUri, 'media', 'styles.css')
     );
+    // Shared sidebar table module — same column definitions as the main board table view.
+    // Built by scripts/build-webview.js from src/webview/sidebar-table.js.
+    const sidebarTableUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'out', 'webview', 'sidebar-table.js')
+    );
     const nonce = crypto.randomBytes(16).toString('hex');
     return `<!DOCTYPE html>
 <html lang="en">
@@ -1383,23 +1405,12 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
     .open-board-btn:hover { background: var(--vscode-button-hoverBackground); }
     .refresh-btn { font-size: 11px; padding: 3px 6px; cursor: pointer; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 3px; }
     .refresh-btn:hover { background: var(--vscode-list-hoverBackground); }
-    .issues-table { width: 100%; border-collapse: collapse; font-size: 11px; }
-    .issues-table th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; opacity: 0.7; font-size: 10px; text-transform: uppercase; position: sticky; top: 0; background: var(--vscode-editor-background); }
-    .issues-table td { padding: 3px 6px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.15)); vertical-align: top; }
-    .issues-table tr:hover td { background: var(--vscode-list-hoverBackground); }
-    .issue-id { font-family: monospace; opacity: 0.6; white-space: nowrap; font-size: 10px; }
-    .issue-title { word-break: break-word; }
-    .status-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 500; white-space: nowrap; }
-    .status-open { background: rgba(100,180,255,0.2); }
-    .status-in_progress { background: rgba(255,165,0,0.2); }
-    .status-blocked { background: rgba(255,100,100,0.2); }
-    .status-closed { background: rgba(100,200,100,0.15); }
-    .priority-badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 10px; }
-    .p0 { color: #ff4444; font-weight: 700; }
-    .p1 { color: #ff8800; font-weight: 700; }
-    .p2 { color: #ffcc00; }
-    .p3, .p4 { opacity: 0.6; }
-    .table-container { overflow-y: auto; max-height: calc(100vh - 60px); }
+    /* Sidebar-specific overrides — base .issues-table styles come from styles.css */
+    .sidebar-wrapper { overflow-y: auto; max-height: calc(100vh - 60px); }
+    .issues-table { font-size: 11px; }
+    .issues-table th { font-size: 10px; }
+    .issues-table td { padding: 3px 6px; }
+    .badge { font-size: 10px; }
     .loading-msg, .error-msg, .empty-msg { padding: 16px; text-align: center; opacity: 0.7; font-size: 12px; }
     .error-msg { color: var(--vscode-errorForeground); }
   </style>
@@ -1412,9 +1423,11 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
       <button class="open-board-btn" id="openBoardBtn">Open Board</button>
     </div>
   </div>
-  <div class="table-container">
+  <div class="sidebar-wrapper">
     <div id="content" class="loading-msg">Loading issues...</div>
   </div>
+  <!-- Shared table rendering module (same columns as the main board table view) -->
+  <script nonce="${nonce}" src="${sidebarTableUri}"></script>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     const content = document.getElementById('content');
@@ -1430,44 +1443,29 @@ class BeadsSidebarProvider implements vscode.WebviewViewProvider {
       vscode.postMessage({ type: 'loadIssues' });
     });
 
-    const priorities = ['P0','P1','P2','P3','P4'];
-    const priorityClass = ['p0','p1','p2','p3','p4'];
-
     function escHtml(str) {
       if (!str) return '';
       return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
     }
 
-    function renderIssues(cards) {
-      if (!cards || cards.length === 0) {
-        content.innerHTML = '<div class="empty-msg">No issues found</div>';
-        return;
-      }
-      const rows = cards.map(c => {
-        const pIdx = Math.min(c.priority || 0, 4);
-        const status = (c.status || 'open').toLowerCase();
-        const statusLabel = status.replace(/_/g,' ');
-        return '<tr>' +
-          '<td class="issue-id">' + escHtml(c.id) + '</td>' +
-          '<td class="issue-title">' + escHtml(c.title) + '</td>' +
-          '<td><span class="status-badge status-' + escHtml(status) + '">' + escHtml(statusLabel) + '</span></td>' +
-          '<td><span class="priority-badge ' + priorityClass[pIdx] + '">' + priorities[pIdx] + '</span></td>' +
-          '</tr>';
-      }).join('');
-      content.innerHTML = '<table class="issues-table">' +
-        '<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>P</th></tr></thead>' +
-        '<tbody>' + rows + '</tbody>' +
-        '</table>';
-    }
-
     window.addEventListener('message', event => {
       const msg = event.data;
       if (msg.type === 'issues') {
-        renderIssues(msg.cards);
+        // Use shared renderSidebarTable from sidebar-table.js
+        if (typeof window.renderSidebarTable === 'function') {
+          window.renderSidebarTable(content, msg.cards);
+        } else {
+          content.innerHTML = '<div class="error-msg">Renderer not loaded</div>';
+        }
       } else if (msg.type === 'error') {
         content.innerHTML = '<div class="error-msg">' + escHtml(msg.message) + '</div>';
       }
     });
+
+    // Auto-refresh every 30 seconds
+    setInterval(() => {
+      vscode.postMessage({ type: 'loadIssues' });
+    }, 30000);
   </script>
 </body>
 </html>`;

@@ -121,6 +121,7 @@ setupBoardEventDelegation();
     if (!menu) return;
 
     let activeCardId = null;
+    let activeCardEl = null;
 
     // Suppress the native context menu only when right-clicking a card.
     // We leave the default menu untouched for all other elements (e.g. text inputs,
@@ -135,6 +136,11 @@ setupBoardEventDelegation();
 
         // Right-click is on a card: show our custom menu instead
         e.preventDefault();
+
+        // Highlight the right-clicked card
+        if (activeCardEl) { activeCardEl.classList.remove('context-selected'); }
+        activeCardEl = cardEl;
+        cardEl.classList.add('context-selected');
 
         activeCardId = cardEl.dataset.id || null;
         if (!activeCardId) return;
@@ -154,6 +160,8 @@ setupBoardEventDelegation();
 
     function hideCardMenu() {
         menu.classList.add('hidden');
+        if (activeCardEl) { activeCardEl.classList.remove('context-selected'); }
+        activeCardEl = null;
         activeCardId = null;
     }
 
@@ -175,7 +183,8 @@ setupBoardEventDelegation();
 
         if (action === 'copyId') {
             try {
-                await postAsync('issue.copyToClipboard', { text: cardId }, 'Copying...');
+                // silent: true suppresses the VS Code notification popup for simple ID copies
+                await postAsync('issue.copyToClipboard', { text: cardId, silent: true }, 'Copying...');
                 toast('Issue ID copied: ' + cardId);
             } catch (err) {
                 toast('Failed to copy: ' + err.message);
@@ -189,7 +198,7 @@ setupBoardEventDelegation();
                 } catch (err) {
                     toast('Failed to delete: ' + err.message);
                 }
-            });
+            }, true /* showCancel */);
         }
     });
 })();
@@ -948,7 +957,7 @@ function toIsoFromLocalInput(value) {
     return date.toISOString();
 }
 
-function toast(msg, actionName, actionCb) {
+function toast(msg, actionName, actionCb, showCancel = false) {
     toastEl.innerHTML = "";
     const span = document.createElement("span");
     span.textContent = msg;
@@ -963,6 +972,14 @@ function toast(msg, actionName, actionCb) {
             toastEl.classList.add("hidden");
         };
         toastEl.appendChild(btn);
+
+        if (showCancel) {
+            const cancelBtn = document.createElement("button");
+            cancelBtn.className = "toast-btn toast-cancel-btn";
+            cancelBtn.textContent = "Cancel";
+            cancelBtn.onclick = () => { toastEl.classList.add("hidden"); };
+            toastEl.appendChild(cancelBtn);
+        }
     }
 
     toastEl.classList.remove("hidden");
