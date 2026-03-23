@@ -371,6 +371,7 @@ let columnState = {
 // Legacy boardData for backward compatibility
 let boardData = null;
 let readOnly = false; // Read-only mode flag from extension
+let simpleMode = false; // Simple mode flag: hides advanced fields in create/edit dialog
 let detailDirty = false;
 
 // Phase 2: Client-side card cache for fast filtering/sorting
@@ -413,11 +414,13 @@ function requestDetailClose() {
         detDialog.close();
         return;
     }
-    const shouldClose = confirm("Discard unsaved changes?");
-    if (shouldClose) {
+    // VS Code webviews don't support window.confirm(); use a toast with action button instead.
+    // Clicking "Discard" dismisses the toast and closes the dialog.
+    // Ignoring the toast (let it auto-hide) is the implicit "cancel" — the dialog stays open.
+    toast('Discard unsaved changes?', 'Discard', () => {
         detailDirty = false;
         detDialog.close();
-    }
+    });
 }
 
 detDialog.addEventListener("cancel", (event) => {
@@ -427,6 +430,65 @@ detDialog.addEventListener("cancel", (event) => {
     event.preventDefault();
     requestDetailClose();
 });
+
+/**
+ * Apply Simple Mode to the edit/create dialog form.
+ * When simpleMode is true, hides advanced fields:
+ *   - Est. Minutes, Due At, Defer Until (Row 3)
+ *   - Flags (Pinned, Template, Ephemeral), Ext Ref (Rows 5-6)
+ *   - Acceptance Criteria, Design Notes, Notes (markdown fields)
+ */
+function applySimpleMode(form) {
+    // Fields to hide in simple mode - find their closest .form-row-multi, .form-section, or .form-row-wide-label parent
+    const simpleModeHiddenIds = [
+        // Row 3 inputs - hide the parent row
+        'editEst', 'editDueAt', 'editDeferUntil',
+        // Flags section
+        'editPinned', 'editTemplate', 'editEphemeral',
+        // Ext ref
+        'editExtRef',
+        // Markdown sections
+        'editAC', 'editDesign', 'editNotes'
+    ];
+
+    // Row 3: Est. Minutes, Due At, Defer Until - find the shared parent row
+    const estField = form.querySelector('#editEst');
+    if (estField) {
+        const row = estField.closest('.form-row-multi');
+        if (row) {
+            row.style.display = simpleMode ? 'none' : '';
+        }
+    }
+
+    // Row 5: Flags section (Pinned, Template, Ephemeral)
+    const pinnedField = form.querySelector('#editPinned');
+    if (pinnedField) {
+        const section = pinnedField.closest('.form-section');
+        if (section) {
+            section.style.display = simpleMode ? 'none' : '';
+        }
+    }
+
+    // Row 6: Ext Ref
+    const extRefField = form.querySelector('#editExtRef');
+    if (extRefField) {
+        const row = extRefField.closest('.form-row-wide-label');
+        if (row) {
+            row.style.display = simpleMode ? 'none' : '';
+        }
+    }
+
+    // Acceptance Criteria, Design Notes, Notes - each is in a .markdown-field-wrapper
+    for (const fieldId of ['editAC', 'editDesign', 'editNotes']) {
+        const field = form.querySelector('#' + fieldId);
+        if (field) {
+            const wrapper = field.closest('.markdown-field-wrapper');
+            if (wrapper) {
+                wrapper.style.display = simpleMode ? 'none' : '';
+            }
+        }
+    }
+}
 // Restore state from VS Code persisted state
 const vscodeState = vscode.getState() || {};
 const collapsedColumns = new Set(vscodeState.collapsedColumns || []);
@@ -2476,6 +2538,7 @@ window.addEventListener("message", (event) => {
         // Maintain backward compatibility
         boardData = msg.payload;
         readOnly = msg.payload.readOnly || false; // Extract read-only flag
+        simpleMode = msg.payload.simpleMode || false; // Extract simple mode flag
 
         render();
         hideLoading();
@@ -2498,6 +2561,8 @@ window.addEventListener("message", (event) => {
 
         
         const cards = msg.payload.cards || [];
+        readOnly = msg.payload.readOnly || false;
+        simpleMode = msg.payload.simpleMode || false;
         
         // Initialize columns with default kanban columns
         columns = [
@@ -3909,6 +3974,9 @@ ${card.design || 'None'}
     });
 
     // Datetime inputs use native browser datepicker (no custom Save/Cancel buttons)
+
+    // Apply simple mode: hide advanced fields if simpleMode is enabled
+    applySimpleMode(form);
 
     detDialog.showModal();
 }

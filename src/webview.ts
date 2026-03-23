@@ -3,7 +3,7 @@ import * as crypto from "crypto";
 
 export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri): string {
   // Use package version for cache-busting (production-friendly, changes only on updates)
-  const version = "2.1.0";
+  const version = "2.2.0";
   const scriptUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "out", "webview", "board.js")) + `?v=${version}`;
   const styleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "styles.css")) + `?v=${version}`;
   const graphStyleUri = webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, "media", "graph-styles.css")) + `?v=${version}`;
@@ -376,7 +376,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
             <span id="removeParent" class="remove-link hidden">(Unlink)</span>
           </div>
           <div id="parentAddRow" class="inline-add-row">
-            <input id="newParentId" type="text" placeholder="Parent Issue ID" list="issueIdOptions" class="inline-input" />
+            <input id="newParentId" type="text" placeholder="Parent Issue ID" class="inline-input" />
             <button type="button" id="btnSetParent" class="btn btn-small">Set</button>
           </div>
 
@@ -386,7 +386,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
           </div>
           <ul id="blockedByList" class="relationship-list"></ul>
           <div class="inline-add-row">
-            <input id="newBlockerId" type="text" placeholder="Blocker Issue ID" list="issueIdOptions" class="inline-input" />
+            <input id="newBlockerId" type="text" placeholder="Blocker Issue ID" class="inline-input" />
             <button type="button" id="btnAddBlocker" class="btn btn-small">Add</button>
           </div>
 
@@ -402,7 +402,7 @@ export function getWebviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri
           </div>
           <ul id="childrenList" class="relationship-list"></ul>
           <div class="inline-add-row">
-            <input id="newChildId" type="text" placeholder="Child Issue ID" list="issueIdOptions" class="inline-input" />
+            <input id="newChildId" type="text" placeholder="Child Issue ID" class="inline-input" />
             <button type="button" id="btnAddChild" class="btn btn-small">Add</button>
           </div>
         </div>

@@ -245,7 +245,7 @@ export const IssueUpdateSchema = z.object({
   updates: z.object({
     title: z.string().max(500).optional(),
     description: z.string().max(10000).optional(),
-    status: z.enum(['open', 'in_progress', 'blocked', 'closed']).optional(),
+    status: z.enum(['open', 'in_progress', 'blocked', 'deferred', 'closed']).optional(),
     priority: z.number().int().min(0).max(4).optional(),
     issue_type: z.enum(['task', 'bug', 'feature', 'epic', 'chore']).optional(),
     assignee: z.string().max(100).nullable().optional(),
@@ -255,14 +255,17 @@ export const IssueUpdateSchema = z.object({
     notes: z.string().max(10000).optional(),
     external_ref: z.string().max(200).nullable().optional(),
     due_at: z.union([z.string().datetime(), z.null()]).optional(),
-    defer_until: z.union([z.string().datetime(), z.null()]).optional()
+    defer_until: z.union([z.string().datetime(), z.null()]).optional(),
+    pinned: z.boolean().optional(),
+    is_template: z.boolean().optional(),
+    ephemeral: z.boolean().optional()
   })
 });
 
 export const IssueCreateSchema = z.object({
   title: z.string().min(1).max(500),
   description: z.string().max(10000).optional(),
-  status: z.enum(['open', 'in_progress', 'blocked', 'closed']).optional(),
+  status: z.enum(['open', 'in_progress', 'blocked', 'deferred', 'closed']).optional(),
   priority: z.number().int().min(0).max(4).optional(),
   issue_type: z.enum(['task', 'bug', 'feature', 'epic', 'chore']).optional(),
   assignee: z.string().max(100).nullable().optional(),

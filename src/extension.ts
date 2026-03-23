@@ -266,21 +266,28 @@ export function activate(context: vscode.ExtensionContext) {
               autoStartAttempted = true;
               output.appendLine('[Extension] Daemon not running, attempting auto-start...');
               try {
-                await daemonManager.start();
-                output.appendLine('[Extension] Daemon started successfully');
-                // Update status immediately after starting
-                setTimeout(() => updateDaemonStatus && updateDaemonStatus(), 1000); // Give daemon time to initialize
+                const started = await daemonManager.start();
+                if (started) {
+                  output.appendLine('[Extension] Daemon started successfully');
+                  // Update status immediately after starting
+                  setTimeout(() => updateDaemonStatus && updateDaemonStatus(), 1000); // Give daemon time to initialize
+                } else {
+                  output.appendLine('[Extension] Daemon start not available (command not supported), continuing without daemon');
+                }
               } catch (startError) {
                 output.appendLine(`[Extension] Failed to auto-start daemon: ${sanitizeError(startError)}`);
-                // Show notification with option to start manually
-                vscode.window.showWarningMessage(
-                  'Beads daemon is not running. The extension requires the daemon to be running.',
-                  'Start Daemon'
-                ).then(action => {
-                  if (action === 'Start Daemon') {
-                    vscode.commands.executeCommand('beadsKanban.showDaemonActions');
-                  }
-                });
+                // Only show notification for non-trivial errors (not "unknown command" which means no daemon support)
+                const errMsg = startError instanceof Error ? startError.message : String(startError);
+                if (!errMsg.includes('unknown command')) {
+                  vscode.window.showWarningMessage(
+                    'Beads daemon is not running. The extension requires the daemon to be running.',
+                    'Start Daemon'
+                  ).then(action => {
+                    if (action === 'Start Daemon') {
+                      vscode.commands.executeCommand('beadsKanban.showDaemonActions');
+                    }
+                  });
+                }
               }
             }
           }
@@ -438,6 +445,7 @@ export function activate(context: vscode.ExtensionContext) {
     }
 
     const readOnly = vscode.workspace.getConfiguration().get<boolean>("beadsKanban.readOnly", false);
+    const simpleMode = vscode.workspace.getConfiguration().get<boolean>("beadsKanban.simpleMode", false);
 
     // Track disposal state and initial load
     let isDisposed = false;
@@ -497,7 +505,7 @@ export function activate(context: vscode.ExtensionContext) {
 
           // Check cancellation before posting
           if (!cancellationToken.cancelled) {
-            post({ type: "board.minimal", requestId, payload: { cards } });
+            post({ type: "board.minimal", requestId, payload: { cards, readOnly, simpleMode } });
           } else {
             output.appendLine(`[Extension] Skipped posting board.minimal - operation cancelled`);
           }
@@ -588,6 +596,7 @@ export function activate(context: vscode.ExtensionContext) {
           const data = await adapter.getBoardMetadata();
           data.columnData = columnDataMap;
           data.readOnly = readOnly; // Propagate read-only mode to webview UI
+          (data as Record<string, unknown>).simpleMode = simpleMode;
 
           // Validate markdown content in column cards (defense-in-depth)
           // Note: data.cards is now empty array from getBoardMetadata, actual cards are in columnData
@@ -611,6 +620,7 @@ export function activate(context: vscode.ExtensionContext) {
           output.appendLine(`[Extension] Adapter does not support incremental loading, using legacy getBoard()`);
           const data = await adapter.getBoard();
           data.readOnly = readOnly; // Propagate read-only mode to webview UI
+          (data as Record<string, unknown>).simpleMode = simpleMode;
           output.appendLine(`[Extension] Got board data: ${data.cards?.length || 0} cards`);
 
           // Validate markdown content in all cards (defense-in-depth)
@@ -803,7 +813,7 @@ export function activate(context: vscode.ExtensionContext) {
           
           // Check cancellation before posting
           if (!cancellationToken.cancelled) {
-            post({ type: "board.minimal", requestId: msg.requestId, payload: { cards } });
+            post({ type: "board.minimal", requestId: msg.requestId, payload: { cards, readOnly, simpleMode } });
           } else {
             output.appendLine(`[Extension] Skipped posting board.minimal - operation cancelled`);
           }
@@ -907,6 +917,7 @@ export function activate(context: vscode.ExtensionContext) {
             try {
               const data = await adapter.getBoard();
               data.readOnly = readOnly; // Propagate read-only mode to webview UI
+              (data as Record<string, unknown>).simpleMode = simpleMode;
               post({ type: "board.data", requestId: msg.requestId, payload: data });
             } catch (err) {
               output.appendLine(`[Extension] Error loading board after repo switch: ${err}`);
@@ -1260,10 +1271,191 @@ export function activate(context: vscode.ExtensionContext) {
   });
 
   context.subscriptions.push(openCmd);
+
+  // Register sidebar webview view provider
+  const sidebarProvider = new BeadsSidebarProvider(context.extensionUri, ensureAdapter, output);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider('beadsKanban.sidebarView', sidebarProvider, {
+      webviewOptions: { retainContextWhenHidden: true }
+    })
+  );
 }
 
 export function deactivate() {
   // nothing
+}
+
+/**
+ * Sidebar WebviewViewProvider - shows a table of issues in the activity bar sidebar
+ */
+class BeadsSidebarProvider implements vscode.WebviewViewProvider {
+  private _view?: vscode.WebviewView;
+
+  constructor(
+    private readonly extensionUri: vscode.Uri,
+    private readonly getAdapter: () => DaemonBeadsAdapter | null,
+    private readonly output: vscode.OutputChannel
+  ) {}
+
+  public resolveWebviewView(
+    webviewView: vscode.WebviewView
+  ) {
+    this._view = webviewView;
+
+    webviewView.webview.options = {
+      enableScripts: true,
+      localResourceRoots: [this.extensionUri]
+    };
+
+    webviewView.webview.html = this._getHtml(webviewView.webview);
+
+    webviewView.webview.onDidReceiveMessage(async (msg) => {
+      if (msg.type === 'openKanban') {
+        vscode.commands.executeCommand('beadsKanban.openBoard');
+      } else if (msg.type === 'loadIssues') {
+        await this._loadAndSendIssues(webviewView.webview);
+      }
+    });
+
+    // Auto-load issues when the view becomes visible
+    webviewView.onDidChangeVisibility(() => {
+      if (webviewView.visible) {
+        this._loadAndSendIssues(webviewView.webview);
+      }
+    });
+
+    // Initial load
+    this._loadAndSendIssues(webviewView.webview);
+  }
+
+  private async _loadAndSendIssues(webview: vscode.Webview) {
+    const adapter = this.getAdapter();
+    if (!adapter) {
+      webview.postMessage({ type: 'error', message: 'No workspace open' });
+      return;
+    }
+    try {
+      const config = vscode.workspace.getConfiguration('beadsKanban');
+      const limit = config.get<number>('initialLoadLimit', 100);
+      const cards = await adapter.getBoardMinimal(limit);
+      webview.postMessage({ type: 'issues', cards });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      this.output.appendLine(`[Sidebar] Error loading issues: ${msg}`);
+      webview.postMessage({ type: 'error', message: 'Failed to load issues' });
+    }
+  }
+
+  private _getHtml(webview: vscode.Webview): string {
+    const styleUri = webview.asWebviewUri(
+      vscode.Uri.joinPath(this.extensionUri, 'media', 'styles.css')
+    );
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const nonce = (require('crypto') as typeof import('crypto')).randomBytes(16).toString('hex');
+    return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link href="${styleUri}" rel="stylesheet" />
+  <style>
+    body { font-size: 12px; padding: 0; margin: 0; }
+    .sidebar-header { padding: 8px; border-bottom: 1px solid var(--vscode-panel-border); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px; }
+    .sidebar-title { font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; opacity: 0.8; }
+    .open-board-btn { font-size: 11px; padding: 3px 8px; cursor: pointer; background: var(--vscode-button-background); color: var(--vscode-button-foreground); border: none; border-radius: 3px; }
+    .open-board-btn:hover { background: var(--vscode-button-hoverBackground); }
+    .refresh-btn { font-size: 11px; padding: 3px 6px; cursor: pointer; background: transparent; color: var(--vscode-foreground); border: 1px solid var(--vscode-panel-border); border-radius: 3px; }
+    .refresh-btn:hover { background: var(--vscode-list-hoverBackground); }
+    .issues-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    .issues-table th { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--vscode-panel-border); font-weight: 600; opacity: 0.7; font-size: 10px; text-transform: uppercase; position: sticky; top: 0; background: var(--vscode-editor-background); }
+    .issues-table td { padding: 3px 6px; border-bottom: 1px solid var(--vscode-panel-border, rgba(128,128,128,0.15)); vertical-align: top; }
+    .issues-table tr:hover td { background: var(--vscode-list-hoverBackground); }
+    .issue-id { font-family: monospace; opacity: 0.6; white-space: nowrap; font-size: 10px; }
+    .issue-title { word-break: break-word; }
+    .status-badge { display: inline-block; padding: 1px 5px; border-radius: 3px; font-size: 10px; font-weight: 500; white-space: nowrap; }
+    .status-open { background: rgba(100,180,255,0.2); }
+    .status-in_progress { background: rgba(255,165,0,0.2); }
+    .status-blocked { background: rgba(255,100,100,0.2); }
+    .status-closed { background: rgba(100,200,100,0.15); }
+    .priority-badge { display: inline-block; padding: 1px 4px; border-radius: 2px; font-size: 10px; }
+    .p0 { color: #ff4444; font-weight: 700; }
+    .p1 { color: #ff8800; font-weight: 700; }
+    .p2 { color: #ffcc00; }
+    .p3, .p4 { opacity: 0.6; }
+    .table-container { overflow-y: auto; max-height: calc(100vh - 60px); }
+    .loading-msg, .error-msg, .empty-msg { padding: 16px; text-align: center; opacity: 0.7; font-size: 12px; }
+    .error-msg { color: var(--vscode-errorForeground); }
+  </style>
+</head>
+<body>
+  <div class="sidebar-header">
+    <span class="sidebar-title">Beads Issues</span>
+    <div style="display:flex;gap:4px;">
+      <button class="refresh-btn" id="refreshBtn" title="Refresh issues">&#x21BA;</button>
+      <button class="open-board-btn" id="openBoardBtn">Open Board</button>
+    </div>
+  </div>
+  <div class="table-container">
+    <div id="content" class="loading-msg">Loading issues...</div>
+  </div>
+  <script nonce="${nonce}">
+    const vscode = acquireVsCodeApi();
+    const content = document.getElementById('content');
+    const refreshBtn = document.getElementById('refreshBtn');
+    const openBoardBtn = document.getElementById('openBoardBtn');
+
+    openBoardBtn.addEventListener('click', () => {
+      vscode.postMessage({ type: 'openKanban' });
+    });
+
+    refreshBtn.addEventListener('click', () => {
+      content.innerHTML = '<div class="loading-msg">Loading issues...</div>';
+      vscode.postMessage({ type: 'loadIssues' });
+    });
+
+    const priorities = ['P0','P1','P2','P3','P4'];
+    const priorityClass = ['p0','p1','p2','p3','p4'];
+
+    function escHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+
+    function renderIssues(cards) {
+      if (!cards || cards.length === 0) {
+        content.innerHTML = '<div class="empty-msg">No issues found</div>';
+        return;
+      }
+      const rows = cards.map(c => {
+        const pIdx = Math.min(c.priority || 0, 4);
+        const status = (c.status || 'open').toLowerCase();
+        const statusLabel = status.replace(/_/g,' ');
+        return '<tr>' +
+          '<td class="issue-id">' + escHtml(c.id) + '</td>' +
+          '<td class="issue-title">' + escHtml(c.title) + '</td>' +
+          '<td><span class="status-badge status-' + escHtml(status) + '">' + escHtml(statusLabel) + '</span></td>' +
+          '<td><span class="priority-badge ' + priorityClass[pIdx] + '">' + priorities[pIdx] + '</span></td>' +
+          '</tr>';
+      }).join('');
+      content.innerHTML = '<table class="issues-table">' +
+        '<thead><tr><th>ID</th><th>Title</th><th>Status</th><th>P</th></tr></thead>' +
+        '<tbody>' + rows + '</tbody>' +
+        '</table>';
+    }
+
+    window.addEventListener('message', event => {
+      const msg = event.data;
+      if (msg.type === 'issues') {
+        renderIssues(msg.cards);
+      } else if (msg.type === 'error') {
+        content.innerHTML = '<div class="error-msg">' + escHtml(msg.message) + '</div>';
+      }
+    });
+  </script>
+</body>
+</html>`;
+  }
 }
 
 function mapColumnToStatus(col: BoardColumnKey): IssueStatus {
