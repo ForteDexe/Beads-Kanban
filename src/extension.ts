@@ -1,9 +1,11 @@
 import * as vscode from "vscode";
+import * as path from "path";
 import { DaemonBeadsAdapter } from "./daemonBeadsAdapter";
 import { DaemonManager } from "./daemonManager";
 import { getWebviewHtml } from "./webview";
 import { sanitizeErrorWithContext as sanitizeError } from "./sanitizeError";
 import { validateMarkdownFields, validateCommentContent } from "./markdownValidator";
+import { resolveEnvVarRefs, getVSCodePlatformName } from "./spawnUtils";
 import {
   BoardData,
   BoardCard,
@@ -146,15 +148,42 @@ export function activate(context: vscode.ExtensionContext) {
   let updateDaemonStatus: (() => void) | null = null;
   let autoStartAttempted = false;
 
-  const getBdConfig = (): { bdPath: string; additionalEnvPath: string[] } => {
+  const getBdSpawnConfig = (): { bdPath: string; additionalEnvPath: string[] } => {
     const ws = vscode.workspace.workspaceFolders?.[0];
     if (!ws) {
       return { bdPath: '', additionalEnvPath: [] };
     }
     const config = vscode.workspace.getConfiguration('beadsKanban', ws.uri);
+    const explicitPaths = config.get<string[]>('additionalEnvPath', []);
+
+    // Also honour the standard VS Code terminal PATH configuration.
+    // Users who set `terminal.integrated.env.<platform>.PATH` in their
+    // settings.json or .code-workspace file expect that PATH to apply to
+    // every tool VS Code runs — including the bd/dolt binaries spawned here.
+    // We resolve `${env:VARNAME}` substitutions (VS Code's own syntax) and
+    // extract only the directories that are not already in process.env.PATH,
+    // to avoid duplicates while preserving the user's intended order.
+    const terminalEnv = vscode.workspace
+      .getConfiguration('terminal.integrated.env', ws.uri)
+      .get<Record<string, string>>(getVSCodePlatformName(), {});
+    const rawTerminalPath = terminalEnv['PATH'] ?? '';
+    const terminalPaths: string[] = [];
+    if (rawTerminalPath.trim()) {
+      const resolved = resolveEnvVarRefs(rawTerminalPath);
+      const existingDirs = new Set(
+        (process.env.PATH ?? '').split(path.delimiter).filter(Boolean)
+      );
+      for (const dir of resolved.split(path.delimiter)) {
+        if (dir.trim() && !existingDirs.has(dir)) {
+          terminalPaths.push(dir);
+        }
+      }
+    }
+
     return {
       bdPath: config.get<string>('bdPath', ''),
-      additionalEnvPath: config.get<string[]>('additionalEnvPath', [])
+      // Explicit extension setting has highest priority, then terminal env additions
+      additionalEnvPath: [...explicitPaths, ...terminalPaths]
     };
   };
 
@@ -164,7 +193,7 @@ export function activate(context: vscode.ExtensionContext) {
       return null;
     }
 
-    const { bdPath, additionalEnvPath } = getBdConfig();
+    const { bdPath, additionalEnvPath } = getBdSpawnConfig();
     const additionalEnvPathKey = JSON.stringify(additionalEnvPath);
 
     if (!adapter || adapterWorkspaceRoot !== ws.uri.fsPath || adapterBdPath !== bdPath || adapterAdditionalEnvPath !== additionalEnvPathKey) {
@@ -189,7 +218,7 @@ export function activate(context: vscode.ExtensionContext) {
       return null;
     }
 
-    const { bdPath, additionalEnvPath } = getBdConfig();
+    const { bdPath, additionalEnvPath } = getBdSpawnConfig();
     const additionalEnvPathKey = JSON.stringify(additionalEnvPath);
 
     if (!daemonManager || daemonWorkspaceRoot !== ws.uri.fsPath || daemonBdPath !== bdPath || daemonAdditionalEnvPath !== additionalEnvPathKey) {

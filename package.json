@@ -109,7 +109,7 @@
             "type": "string"
           },
           "default": [],
-          "description": "Additional directories to prepend to PATH when the extension runs bd commands. Use this when bd or tools it calls (e.g., dolt) are not on the PATH that VS Code inherits — common when VS Code is launched from a GUI launcher rather than a terminal. Each entry is a directory path; leading ~ is expanded to the user home directory. Example: [\"/opt/homebrew/bin\", \"~/.local/bin\"]"
+          "description": "Additional directories to prepend to PATH when the extension runs bd commands. The extension automatically reads terminal.integrated.env.<platform>.PATH from settings.json and .code-workspace — you may not need this setting if bd and dolt are already listed there. Use this only for directories that should apply specifically to the extension (e.g. a project-local bd build) and not to the terminal. Each entry is a directory path; leading ~ is expanded to the user home directory. Example: [\"/opt/homebrew/bin\", \"~/.local/bin\"]"
         }
       }
     }

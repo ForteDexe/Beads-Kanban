@@ -2,6 +2,32 @@ import * as os from 'os';
 import * as path from 'path';
 
 /**
+ * Map `process.platform` to the key used by VS Code's `terminal.integrated.env.*`
+ * configuration namespace.  The three possible values VS Code recognises are
+ * `'linux'`, `'osx'`, and `'windows'`.
+ */
+export function getVSCodePlatformName(): 'linux' | 'osx' | 'windows' {
+  if (process.platform === 'darwin') { return 'osx'; }
+  if (process.platform === 'win32')  { return 'windows'; }
+  return 'linux';
+}
+
+/**
+ * Resolve VS Code variable substitution references of the form `${env:VARNAME}`
+ * inside a string value.  This is the same syntax VS Code uses in
+ * `terminal.integrated.env.*` settings.
+ *
+ * Unknown variable names resolve to an empty string (matching VS Code behaviour).
+ *
+ * @param value - Raw string potentially containing `${env:VARNAME}` tokens
+ * @param env   - Environment to look up variable values in (defaults to process.env)
+ * @returns The string with all `${env:VARNAME}` tokens replaced
+ */
+export function resolveEnvVarRefs(value: string, env: NodeJS.ProcessEnv = process.env): string {
+  return value.replace(/\$\{env:([^}]+)\}/g, (_, name: string) => env[name] ?? '');
+}
+
+/**
  * Build a process environment suitable for spawning bd and its dependencies.
  *
  * VS Code launched from a GUI (macOS Dock, Linux desktop shortcut, etc.) inherits
@@ -23,9 +49,13 @@ import * as path from 'path';
 export function buildSpawnEnv(additionalPaths: string[]): NodeJS.ProcessEnv {
   const expanded = additionalPaths
     .map(p => p.replace(/\0/g, ''))                                       // strip null bytes
-    .map(p => (p === '~' || p.startsWith('~/') || p.startsWith('~\\'))   // expand leading ~
-              ? os.homedir() + p.slice(1)
-              : p)
+    .map(p => {
+      if (p === '~') { return os.homedir(); }
+      if (p.startsWith('~/') || p.startsWith('~\\')) {
+        return path.join(os.homedir(), p.slice(2));
+      }
+      return p;
+    })
     .filter(p => p.trim().length > 0);                                    // drop empty entries
 
   if (expanded.length === 0) {

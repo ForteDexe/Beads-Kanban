@@ -1,6 +1,6 @@
 import * as assert from 'assert';
 import { DaemonBeadsAdapter } from '../../daemonBeadsAdapter';
-import { buildSpawnEnv } from '../../spawnUtils';
+import { buildSpawnEnv, resolveEnvVarRefs, getVSCodePlatformName } from '../../spawnUtils';
 import {
     IssueCreateSchema,
     IssueUpdateSchema,
@@ -569,6 +569,68 @@ suite('Security Tests', () => {
                 const adapter = new DaemonBeadsAdapter('/fake/workspace', output, 'bd', ['/opt/homebrew/bin']);
                 adapter.dispose();
             }, 'DaemonBeadsAdapter should accept additionalEnvPath');
+        });
+    });
+
+    suite('resolveEnvVarRefs() - VS Code terminal.integrated.env variable substitution', () => {
+        test('Replaces ${env:VARNAME} with the value from the supplied env', () => {
+            const result = resolveEnvVarRefs('${env:HOME}/bin', { HOME: '/users/alice' });
+            assert.strictEqual(result, '/users/alice/bin');
+        });
+
+        test('Replaces multiple references in one string', () => {
+            const result = resolveEnvVarRefs(
+                '/extra:${env:PATH}:${env:EXTRA}',
+                { PATH: '/usr/bin', EXTRA: '/opt/bin' }
+            );
+            assert.strictEqual(result, '/extra:/usr/bin:/opt/bin');
+        });
+
+        test('Resolves ${env:PATH} reference using process.env by default', () => {
+            const result = resolveEnvVarRefs('${env:PATH}');
+            assert.strictEqual(result, process.env.PATH ?? '', 'Should use process.env when no env arg given');
+        });
+
+        test('Unknown variable resolves to empty string', () => {
+            const result = resolveEnvVarRefs('${env:DOES_NOT_EXIST_XYZ}', {});
+            assert.strictEqual(result, '');
+        });
+
+        test('String without references is returned unchanged', () => {
+            const input = '/opt/homebrew/bin:/usr/local/bin';
+            assert.strictEqual(resolveEnvVarRefs(input, {}), input);
+        });
+
+        test('Typical terminal.integrated.env PATH pattern is resolved correctly', () => {
+            // Common pattern users write in settings.json:
+            // "terminal.integrated.env.linux": { "PATH": "/opt/homebrew/bin:${env:PATH}" }
+            const result = resolveEnvVarRefs('/opt/homebrew/bin:${env:PATH}', { PATH: '/usr/bin:/bin' });
+            assert.strictEqual(result, '/opt/homebrew/bin:/usr/bin:/bin');
+        });
+
+        test('Empty string is returned unchanged', () => {
+            assert.strictEqual(resolveEnvVarRefs('', {}), '');
+        });
+    });
+
+    suite('getVSCodePlatformName() - platform name for terminal.integrated.env.*', () => {
+        test('Returns one of the three valid VS Code platform keys', () => {
+            const name = getVSCodePlatformName();
+            assert.ok(
+                name === 'linux' || name === 'osx' || name === 'windows',
+                `Expected 'linux', 'osx', or 'windows', got '${name}'`
+            );
+        });
+
+        test('Returns a string consistent with process.platform', () => {
+            const name = getVSCodePlatformName();
+            if (process.platform === 'darwin') {
+                assert.strictEqual(name, 'osx');
+            } else if (process.platform === 'win32') {
+                assert.strictEqual(name, 'windows');
+            } else {
+                assert.strictEqual(name, 'linux');
+            }
         });
     });
 });
